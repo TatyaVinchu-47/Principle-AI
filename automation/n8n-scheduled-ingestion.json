@@ -1,0 +1,75 @@
+{
+  "name": "Principle AI — Scheduled Job Ingestion",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [{ "field": "minutes", "minutesInterval": 15 }]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Every 15 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://example-public-job-feed.test/api/latest",
+        "options": {}
+      },
+      "id": "fetch-feed",
+      "name": "Fetch public job feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300],
+      "notes": "Replace with an approved API provider or public feed. Do NOT configure LinkedIn scraping here."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Map provider items into Principle AI ingest items.\n// Each item becomes { rawText, sourceUrl, sourceKind }.\nreturn items.map((i) => {\n  const d = i.json;\n  return {\n    json: {\n      rawText: [d.title, d.company, d.location, d.description].filter(Boolean).join('\\n'),\n      sourceUrl: d.url || null,\n      sourceKind: 'public_feed'\n    }\n  };\n});"
+      },
+      "id": "map-items",
+      "name": "Map to ingest items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.PRINCIPLE_APP_URL }}/api/webhooks/ingest",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-ingest-secret", "value": "={{ $env.INGEST_WEBHOOK_SECRET }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { items: $items().map(i => i.json) } }}",
+        "options": {}
+      },
+      "id": "post-ingest",
+      "name": "POST /api/webhooks/ingest",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "notes": "Each item is classified by the AI Job Classifier, de-duplicated, scam-scored, and routed to approved/pending/rejected."
+    }
+  ],
+  "connections": {
+    "Every 15 minutes": {
+      "main": [[{ "node": "Fetch public job feed", "type": "main", "index": 0 }]]
+    },
+    "Fetch public job feed": {
+      "main": [[{ "node": "Map to ingest items", "type": "main", "index": 0 }]]
+    },
+    "Map to ingest items": {
+      "main": [[{ "node": "POST /api/webhooks/ingest", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {},
+  "pinData": {}
+}
